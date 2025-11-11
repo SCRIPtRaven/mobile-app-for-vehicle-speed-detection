@@ -1,6 +1,8 @@
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 
+import cv2
 import numpy as np
+import numpy.typing as npt
 
 from .transformer import MetricTransformer
 
@@ -154,6 +156,111 @@ class CameraCalibrationTransformer(MetricTransformer):
         horizon_y = norm_y * (self._image_height / 2) + self._image_height / 2
 
         return horizon_y
+
+    def draw_metric_grid(
+        self,
+        frame: npt.NDArray[np.uint8],
+        distances: Optional[List[float]] = None,
+        show_horizon: bool = True,
+        line_thickness: int = 2,
+        text_scale: float = 0.7,
+    ) -> npt.NDArray[np.uint8]:
+        """
+        Draw metric distance grid lines on a frame.
+        """
+        if not self._is_calibrated:
+            raise RuntimeError("Transformer must be calibrated before drawing grid")
+
+        if distances is None:
+            distances = [1, 2, 3, 5, 10, 15, 20, 30, 50]
+
+        height, width = frame.shape[:2]
+        vis_frame = frame.copy()
+
+        colors_cycle = [
+            (255, 255, 0),  # Cyan
+            (255, 200, 0),  # Light blue
+            (255, 150, 0),  # Blue
+            (200, 100, 0),  # Dark blue
+            (150, 50, 0),   # Navy
+            (100, 0, 0),    # Dark navy
+            (50, 0, 50),    # Very dark
+            (100, 0, 100),  # Purple
+            (150, 0, 150),  # Light purple
+        ]
+
+        horizon_y = self.get_horizon_line()
+
+        for distance, color in zip(distances, colors_cycle):
+            points_on_line = []
+
+            for x_px in range(0, width, max(1, width // 20)):
+                y_min, y_max = int(horizon_y) + 1, height - 1
+
+                if y_min >= y_max:
+                    continue
+
+                try:
+                    best_y = None
+                    best_diff = float('inf')
+
+                    for y_px in range(y_min, y_max, max(1, (y_max - y_min) // 50)):
+                        try:
+                            x_m, y_m = self.transform_point((x_px, y_px))
+                            diff = abs(y_m - distance)
+                            if diff < best_diff:
+                                best_diff = diff
+                                best_y = y_px
+                        except:
+                            pass
+
+                    if best_y is not None and best_diff < distance * 0.1:
+                        points_on_line.append((x_px, best_y))
+
+                except:
+                    pass
+
+            if len(points_on_line) > 1:
+                for i in range(len(points_on_line) - 1):
+                    cv2.line(
+                        vis_frame,
+                        points_on_line[i],
+                        points_on_line[i + 1],
+                        color,
+                        line_thickness
+                    )
+
+                if points_on_line:
+                    label_x, label_y = points_on_line[len(points_on_line) // 2]
+                    cv2.putText(
+                        vis_frame,
+                        f"{distance}m",
+                        (label_x + 10, label_y),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        text_scale,
+                        color,
+                        line_thickness
+                    )
+
+        if show_horizon:
+            cv2.line(
+                vis_frame,
+                (0, int(horizon_y)),
+                (width, int(horizon_y)),
+                (0, 0, 255),
+                line_thickness + 1
+            )
+            cv2.putText(
+                vis_frame,
+                "HORIZON",
+                (10, int(horizon_y) - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.0,
+                (0, 0, 255),
+                line_thickness + 1
+            )
+
+        return vis_frame
 
     @classmethod
     def create_typical_smartphone(
