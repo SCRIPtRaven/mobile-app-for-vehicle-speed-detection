@@ -13,16 +13,7 @@ class CameraCalibrationTransformer(MetricTransformer):
     The transformer assumes a flat ground plane and uses pinhole camera geometry.
     """
 
-    def __init__(self):
-        super().__init__()
-        self._camera_height: Optional[float] = None
-        self._tilt_angle: Optional[float] = None
-        self._focal_length: Optional[float] = None
-        self._image_width: Optional[int] = None
-        self._image_height: Optional[int] = None
-        self._sensor_width: Optional[float] = None
-
-    def calibrate(
+    def __init__(
             self,
             camera_height: float,
             tilt_angle: float,
@@ -31,7 +22,7 @@ class CameraCalibrationTransformer(MetricTransformer):
             image_height: int,
             sensor_width: float = 36.0,
             pan_angle: float = 0.0,
-    ) -> None:
+    ):
         """
         Args:
             camera_height: Height of camera above ground in meters
@@ -45,6 +36,8 @@ class CameraCalibrationTransformer(MetricTransformer):
             pan_angle: Camera pan angle in degrees (positive = looking right)
                       Usually 0 for forward-facing cameras
         """
+        super().__init__()
+
         if camera_height <= 0:
             raise ValueError(f"camera_height must be positive, got {camera_height}")
 
@@ -73,17 +66,18 @@ class CameraCalibrationTransformer(MetricTransformer):
 
         self._is_calibrated = True
 
-    def calibrate_from_exif(
-            self,
+    @classmethod
+    def from_exif(
+            cls,
             camera_height: float,
             tilt_angle: float,
             exif_focal_length: float,
             exif_focal_length_35mm: Optional[float],
             image_width: int,
             image_height: int,
-    ) -> None:
+    ) -> "CameraCalibrationTransformer":
         """
-        Calibrate using EXIF data from an image.
+        Create transformer using EXIF data from an image.
 
         Args:
             camera_height: Height of camera above ground in meters
@@ -92,16 +86,36 @@ class CameraCalibrationTransformer(MetricTransformer):
             exif_focal_length_35mm: 35mm equivalent focal length from EXIF
             image_width: Image width in pixels
             image_height: Image height in pixels
+
+        Returns:
+            Configured CameraCalibrationTransformer instance
         """
         focal_length = exif_focal_length_35mm if exif_focal_length_35mm else exif_focal_length
 
-        self.calibrate(
+        return cls(
             camera_height=camera_height,
             tilt_angle=tilt_angle,
             focal_length=focal_length,
             image_width=image_width,
             image_height=image_height,
             sensor_width=36.0
+        )
+
+    def transform(
+            self,
+            points: Tuple[float, float] | List[Tuple[float, float]] | npt.NDArray[np.float64]
+    ) -> Tuple[float, float] | npt.NDArray[np.float64]:
+        if isinstance(points, tuple) and len(points) == 2:
+            return self.transform_point(points)
+
+        if isinstance(points, list):
+            points = np.array(points)
+
+        if isinstance(points, np.ndarray):
+            return self.transform_points(points)
+
+        raise TypeError(
+            f"Expected tuple, list of tuples, or numpy array, got {type(points)}"
         )
 
     def transform_point(self, point: Tuple[float, float]) -> Tuple[float, float]:
@@ -273,8 +287,7 @@ class CameraCalibrationTransformer(MetricTransformer):
         """
         Create a transformer with typical smartphone camera parameters.
         """
-        transformer = cls()
-        transformer.calibrate(
+        return cls(
             camera_height=camera_height,
             tilt_angle=tilt_angle,
             focal_length=26,
@@ -282,7 +295,6 @@ class CameraCalibrationTransformer(MetricTransformer):
             image_height=image_height,
             sensor_width=36.0,
         )
-        return transformer
 
     @classmethod
     def create_dashcam(
@@ -295,8 +307,7 @@ class CameraCalibrationTransformer(MetricTransformer):
         """
         Create a transformer with typical dashcam parameters.
         """
-        transformer = cls()
-        transformer.calibrate(
+        return cls(
             camera_height=camera_height,
             tilt_angle=tilt_angle,
             focal_length=28,
@@ -304,4 +315,3 @@ class CameraCalibrationTransformer(MetricTransformer):
             image_height=image_height,
             sensor_width=36.0,
         )
-        return transformer

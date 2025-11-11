@@ -18,8 +18,7 @@ def main():
 
     height, width = image.shape[:2]
 
-    transformer = CameraCalibrationTransformer()
-    transformer.calibrate(
+    transformer = CameraCalibrationTransformer(
         camera_height=CAMERA_HEIGHT,
         tilt_angle=TILT_ANGLE,
         focal_length=FOCAL_LENGTH,
@@ -68,7 +67,7 @@ def main():
 
                 for y_px in range(y_min, y_max, max(1, (y_max - y_min) // 50)):
                     try:
-                        x_m, y_m = transformer.transform_point((x_px, y_px))
+                        x_m, y_m = transformer.transform((x_px, y_px))
                         diff = abs(y_m - distance)
                         if diff < best_diff:
                             best_diff = diff
@@ -94,7 +93,7 @@ def main():
 
     for px, py, label in test_points:
         try:
-            x_m, y_m = transformer.transform_point((px, py))
+            x_m, y_m = transformer.transform((px, py))
 
             cv2.circle(vis_image, (px, py), 10, (0, 255, 0), -1)
             cv2.circle(vis_image, (px, py), 12, (0, 0, 0), 2)
