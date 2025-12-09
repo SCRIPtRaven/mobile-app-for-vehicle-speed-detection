@@ -26,6 +26,7 @@ import android.util.AttributeSet
 import android.view.View
 import androidx.core.content.ContextCompat
 import org.tensorflow.lite.examples.objectdetection.detectors.ObjectDetection
+import org.tensorflow.lite.examples.objectdetection.detectors.GridLines
 import java.util.LinkedList
 import java.util.Locale
 import kotlin.math.max
@@ -36,6 +37,16 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
     private var boxPaint = Paint()
     private var textBackgroundPaint = Paint()
     private var textPaint = Paint()
+
+    // Grid visualization
+    private var showGrid: Boolean = false
+    private var gridLines: GridLines? = null
+    private var gridPaint = Paint()
+    private var gridTextPaint = Paint()
+    private var horizonPaint = Paint()
+    private var gridImageWidth: Int = 0
+    private var gridImageHeight: Int = 0
+    private var gridScaleFactor: Float = 1f
 
     // Palette of distinct colors to assign per tracking id
     private val palette = intArrayOf(
@@ -79,10 +90,30 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
         boxPaint.color = ContextCompat.getColor(context!!, R.color.bounding_box_color)
         boxPaint.strokeWidth = 8F
         boxPaint.style = Paint.Style.STROKE
+
+        // Grid paints
+        gridPaint.style = Paint.Style.STROKE
+        gridPaint.strokeWidth = 2f
+        gridPaint.isAntiAlias = true
+
+        gridTextPaint.color = Color.WHITE
+        gridTextPaint.style = Paint.Style.FILL
+        gridTextPaint.textSize = 32f
+        gridTextPaint.isAntiAlias = true
+
+        horizonPaint.color = Color.RED
+        horizonPaint.style = Paint.Style.STROKE
+        horizonPaint.strokeWidth = 3f
+        horizonPaint.isAntiAlias = true
     }
 
     override fun draw(canvas: Canvas) {
         super.draw(canvas)
+
+        // Draw grid first (behind bounding boxes)
+        if (showGrid && gridLines != null) {
+            drawGrid(canvas)
+        }
 
         for (result in results) {
             val boundingBox = result.boundingBox
@@ -140,6 +171,118 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
         // PreviewView is in FILL_START mode. So we need to scale up the bounding box to match with
         // the size that the captured images will be displayed.
         scaleFactor = max(width * 1f / imageWidth, height * 1f / imageHeight)
+    }
+
+    fun setGridEnabled(enabled: Boolean) {
+        showGrid = enabled
+        invalidate()
+    }
+
+    fun setGridLines(grid: GridLines?, imageWidth: Int, imageHeight: Int) {
+        gridLines = grid
+        gridImageWidth = imageWidth
+        gridImageHeight = imageHeight
+        // Calculate scale factor for grid based on transformer's image dimensions
+        gridScaleFactor = max(width * 1f / imageWidth, height * 1f / imageHeight)
+        invalidate()
+    }
+
+    private fun drawGrid(canvas: Canvas) {
+        val grid = gridLines ?: return
+
+        // Color palette for horizontal distance lines (cycling through hues)
+        val horizontalColors = listOf(
+            Color.rgb(255, 255, 0),   // Cyan
+            Color.rgb(255, 200, 0),   // Light blue
+            Color.rgb(255, 150, 0),   // Blue
+            Color.rgb(200, 100, 0),   // Dark blue
+            Color.rgb(150, 50, 0),    // Navy
+            Color.rgb(100, 0, 0),     // Dark navy
+            Color.rgb(50, 0, 50),     // Very dark
+            Color.rgb(100, 0, 100),   // Purple
+            Color.rgb(150, 0, 150)    // Light purple
+        )
+
+        // Draw horizontal distance lines
+        for ((index, line) in grid.horizontalLines.withIndex()) {
+            val color = horizontalColors[index % horizontalColors.size]
+            gridPaint.color = color
+
+            val points = line.points
+            for (i in 0 until points.size - 1) {
+                val p1 = points[i]
+                val p2 = points[i + 1]
+                canvas.drawLine(
+                    p1.x * gridScaleFactor,
+                    p1.y * gridScaleFactor,
+                    p2.x * gridScaleFactor,
+                    p2.y * gridScaleFactor,
+                    gridPaint
+                )
+            }
+
+            // Draw distance label
+            if (points.isNotEmpty()) {
+                val midPoint = points[points.size / 2]
+                gridTextPaint.color = color
+                canvas.drawText(
+                    "${line.distanceMeters.toInt()}m",
+                    midPoint.x * gridScaleFactor + 10f,
+                    midPoint.y * gridScaleFactor,
+                    gridTextPaint
+                )
+            }
+        }
+
+        // Draw vertical lateral lines
+        gridPaint.color = Color.GREEN
+        for (line in grid.verticalLines) {
+            val points = line.points
+            for (i in 0 until points.size - 1) {
+                val p1 = points[i]
+                val p2 = points[i + 1]
+                canvas.drawLine(
+                    p1.x * gridScaleFactor,
+                    p1.y * gridScaleFactor,
+                    p2.x * gridScaleFactor,
+                    p2.y * gridScaleFactor,
+                    gridPaint
+                )
+            }
+
+            // Draw lateral distance label (only for non-zero)
+            if (points.isNotEmpty() && line.lateralMeters != 0f) {
+                val labelPoint = points[points.size - 1]
+                gridTextPaint.color = Color.GREEN
+                val labelText = if (line.lateralMeters > 0) "+${line.lateralMeters.toInt()}m" else "${line.lateralMeters.toInt()}m"
+                canvas.drawText(
+                    labelText,
+                    labelPoint.x * gridScaleFactor - 20f,
+                    labelPoint.y * gridScaleFactor - 5f,
+                    gridTextPaint
+                )
+            }
+        }
+
+        // Draw horizon line
+        canvas.drawLine(
+            0f,
+            grid.horizonY * gridScaleFactor,
+            width.toFloat(),
+            grid.horizonY * gridScaleFactor,
+            horizonPaint
+        )
+
+        // Draw horizon label
+        gridTextPaint.color = Color.RED
+        gridTextPaint.textSize = 40f
+        canvas.drawText(
+            "HORIZON",
+            10f,
+            grid.horizonY * gridScaleFactor - 10f,
+            gridTextPaint
+        )
+        gridTextPaint.textSize = 32f // Reset
     }
 
     private fun colorForId(id: Int): Int {
