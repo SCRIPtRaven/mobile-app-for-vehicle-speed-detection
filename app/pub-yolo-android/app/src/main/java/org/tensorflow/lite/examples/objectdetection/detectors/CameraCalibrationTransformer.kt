@@ -154,4 +154,143 @@ class CameraCalibrationTransformer(
         val horizonY = normY * (imageHeight / 2.0) + imageHeight / 2.0
         return horizonY
     }
+
+    /**
+     * Inverse transform: Convert ground plane meters to pixel coordinates.
+     *
+     * @param xMeters Lateral distance in meters (negative=left, positive=right)
+     * @param yMeters Distance from camera in meters (forward distance)
+     * @return PointF with pixel coordinates, or null if point is outside valid range
+     */
+    fun inverseTransformPoint(xMeters: Double, yMeters: Double): PointF? {
+        if (!isCalibrated) throw IllegalStateException("Transformer must be calibrated first")
+
+        if (yMeters <= 0.0) return null
+
+        // Calculate horizontal angle
+        val alpha = atan(xMeters / yMeters) - panAngleRad
+
+        // Calculate ray elevation from distance
+        val rayElevation = -atan(cameraHeight / yMeters)
+
+        // Calculate beta (vertical view angle)
+        val beta = rayElevation + tiltAngleRad
+
+        // Check if point is below horizon (ray_elevation must be negative)
+        if (rayElevation >= 0.0) return null
+
+        // Convert angles to normalized coordinates
+        val normX = alpha / (fovHorizontal / 2.0)
+        val normY = -beta / (fovVertical / 2.0)
+
+        // Check if within field of view
+        if (abs(normX) > 1.0 || abs(normY) > 1.0) return null
+
+        // Convert to pixel coordinates
+        val xPx = (normX * (imageWidth / 2.0) + imageWidth / 2.0).toFloat()
+        val yPx = (normY * (imageHeight / 2.0) + imageHeight / 2.0).toFloat()
+
+        // Verify within image bounds
+        if (xPx >= 0 && xPx < imageWidth && yPx >= 0 && yPx < imageHeight) {
+            return PointF(xPx, yPx)
+        }
+
+        return null
+    }
+
+    /**
+     * Get grid line points for visualization.
+     * Returns a data structure containing all points needed to draw the perspective grid.
+     */
+    fun getGridLines(
+        distances: List<Float> = listOf(1f, 2f, 3f, 5f, 10f, 15f, 20f, 30f, 50f),
+        lateralDistances: List<Float> = listOf(-15f, -10f, -5f, -2f, 0f, 2f, 5f, 10f, 15f)
+    ): GridLines {
+        if (!isCalibrated) throw IllegalStateException("Transformer must be calibrated before drawing grid")
+
+        val horizonY = getHorizonLine().toFloat()
+        val horizontalLines = mutableListOf<HorizontalLine>()
+        val verticalLines = mutableListOf<VerticalLine>()
+
+        // Generate horizontal distance lines
+        for (distance in distances) {
+            val points = mutableListOf<PointF>()
+
+            // Sample across width
+            for (xPx in 0 until imageWidth step max(1, imageWidth / 20)) {
+                val yMin = horizonY.toInt() + 1
+                val yMax = imageHeight - 1
+
+                if (yMin >= yMax) continue
+
+                var bestY: Int? = null
+                var bestDiff = Float.MAX_VALUE
+
+                // Search vertically for point at this distance
+                for (yPx in yMin until yMax step max(1, (yMax - yMin) / 50)) {
+                    try {
+                        val (xM, yM) = transformPoint(xPx.toFloat(), yPx.toFloat())
+                        val diff = abs(yM - distance.toDouble())
+                        if (diff < bestDiff) {
+                            bestDiff = diff.toFloat()
+                            bestY = yPx
+                        }
+                    } catch (e: Exception) {
+                        // Point above horizon or invalid
+                    }
+                }
+
+                if (bestY != null && bestDiff < distance * 0.1f) {
+                    points.add(PointF(xPx.toFloat(), bestY.toFloat()))
+                }
+            }
+
+            if (points.size > 1) {
+                horizontalLines.add(HorizontalLine(distance, points))
+            }
+        }
+
+        // Generate vertical lateral lines
+        for (lateralDist in lateralDistances) {
+            val points = mutableListOf<PointF>()
+
+            val minDepth = distances.minOrNull() ?: 1f
+            val maxDepth = distances.maxOrNull() ?: 50f
+
+            // Sample depths from near to far
+            val numSamples = 50
+            for (i in 0..numSamples) {
+                val depth = minDepth + (maxDepth - minDepth) * i / numSamples
+                val pixelCoord = inverseTransformPoint(lateralDist.toDouble(), depth.toDouble())
+                if (pixelCoord != null) {
+                    points.add(pixelCoord)
+                }
+            }
+
+            if (points.size > 1) {
+                verticalLines.add(VerticalLine(lateralDist, points))
+            }
+        }
+
+        return GridLines(horizonY, horizontalLines, verticalLines)
+    }
 }
+
+/**
+ * Data classes for grid visualization
+ */
+data class GridLines(
+    val horizonY: Float,
+    val horizontalLines: List<HorizontalLine>,
+    val verticalLines: List<VerticalLine>
+)
+
+data class HorizontalLine(
+    val distanceMeters: Float,
+    val points: List<PointF>
+)
+
+data class VerticalLine(
+    val lateralMeters: Float,
+    val points: List<PointF>
+)

@@ -302,6 +302,22 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
             // ignore binding errors
         }
 
+        // Initialize grid toggle
+        try {
+            val gridToggle = fragmentCameraBinding.bottomSheetLayout.gridToggle
+            gridToggle.setOnCheckedChangeListener { _, isChecked ->
+                fragmentCameraBinding.overlay.setGridEnabled(isChecked)
+                if (isChecked) {
+                    // Update grid when enabled
+                    updateGridVisualization()
+                }
+                // Force redraw to show/hide grid immediately
+                fragmentCameraBinding.overlay.invalidate()
+            }
+        } catch (e: Exception) {
+            // ignore binding errors
+        }
+
         // Initialize threshold seekbar (0..100 -> 0.00..1.00)
         try {
             val thrSeek = fragmentCameraBinding.bottomSheetLayout.thresholdSeek
@@ -483,11 +499,28 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
 
     @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
     @OptIn(ExperimentalCamera2Interop::class)
+    private fun updateGridVisualization() {
+        try {
+            val transformer = objectDetectorHelper.getTransformer()
+            if (transformer.isCalibrated()) {
+                val gridLines = transformer.getGridLines()
+                fragmentCameraBinding.overlay.setGridLines(
+                    gridLines,
+                    transformer.getImageWidth(),
+                    transformer.getImageHeight()
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to update grid visualization: ${e.message}")
+        }
+    }
+
     private fun calibrateUsingCamera2Intrinsics(useWidth: Int, useHeight: Int, tiltDeg: Double, cameraHeightMeters: Double) {
         try {
             if (camera == null) {
                 // fallback to buffer-only calibration
                 objectDetectorHelper.calibrateFromCamera(useWidth, useHeight, cameraHeightMeters, tiltAngleDeg = tiltDeg)
+                updateGridVisualization()
                 return
             }
 
@@ -515,10 +548,12 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
 
             objectDetectorHelper.calibrateFromCamera(useWidth, useHeight, cameraHeightMeters, tiltAngleDeg = tiltDeg, focalLengthMm = focalLengthMm, sensorWidthMm = sensorWidthMm)
             Log.i(TAG, "Calibrated using Camera2 intrinsics: focal=${focalLengthMm ?: "n/a"}, sensorW=${sensorWidthMm ?: "n/a"}, img=${useWidth}x${useHeight}")
+            updateGridVisualization()
         } catch (e: Exception) {
             Log.w(TAG, "calibrateUsingCamera2Intrinsics failed, falling back: ${e.message}")
             // fallback
             objectDetectorHelper.calibrateFromCamera(useWidth, useHeight, cameraHeightMeters, tiltAngleDeg = tiltDeg)
+            updateGridVisualization()
         }
     }
 

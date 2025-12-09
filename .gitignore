@@ -99,3 +99,9 @@ fabric.properties
 
 uv.lock
 app-debug.apk
+
+# Android build outputs
+app/pub-yolo-android/app/build/*
+app/pub-yolo-android/.gradle/*
+app/pub-yolo-android/build/*
+app/pub-yolo-android/app/.cxx/*

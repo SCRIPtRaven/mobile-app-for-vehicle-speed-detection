@@ -162,6 +162,30 @@
 
         </LinearLayout>
 
+        <!-- Show Grid toggle -->
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/bottom_sheet_default_row_margin">
+
+            <TextView
+                android:text="Show Grid"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_centerVertical="true"
+                android:textSize="@dimen/bottom_sheet_text_size"
+                android:textColor="@color/bottom_sheet_text_color" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/grid_toggle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentRight="true"
+                android:layout_centerVertical="true"
+                android:checked="false" />
+
+        </RelativeLayout>
+
         <!-- Number of threads adjustment row -->
         <RelativeLayout
             android:layout_width="match_parent"

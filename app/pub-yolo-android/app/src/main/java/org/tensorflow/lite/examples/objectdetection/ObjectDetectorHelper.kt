@@ -72,6 +72,8 @@ class ObjectDetectorHelper(
         objectDetector = null
     }
 
+    fun getTransformer(): CameraCalibrationTransformer = transformer
+
     // Initialize the object detector using current settings on the
     // thread that is using it. CPU and NNAPI delegates can be used with detectors
     // that are created on the main thread and used on a background thread, but
