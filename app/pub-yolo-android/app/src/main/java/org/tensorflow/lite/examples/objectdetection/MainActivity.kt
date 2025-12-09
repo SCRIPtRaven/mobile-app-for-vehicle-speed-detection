@@ -18,7 +18,9 @@ package org.tensorflow.lite.examples.objectdetection
 
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
+import org.opencv.android.OpenCVLoader
 import org.tensorflow.lite.examples.objectdetection.databinding.ActivityMainBinding
 
 /**
@@ -31,8 +33,20 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Initialize OpenCV for camera motion compensation
+        if (OpenCVLoader.initDebug()) {
+            Log.i(TAG, "OpenCV successfully loaded for motion compensation")
+        } else {
+            Log.e(TAG, "OpenCV initialization failed - motion compensation unavailable")
+        }
+
         activityMainBinding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(activityMainBinding.root)
+    }
+
+    companion object {
+        private const val TAG = "MainActivity"
     }
 
     override fun onBackPressed() {

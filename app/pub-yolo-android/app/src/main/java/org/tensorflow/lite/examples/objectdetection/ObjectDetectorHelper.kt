@@ -20,6 +20,7 @@ import android.graphics.Bitmap
 import android.os.SystemClock
 import android.util.Log
 import org.tensorflow.lite.examples.objectdetection.detectors.CameraCalibrationTransformer
+import org.tensorflow.lite.examples.objectdetection.detectors.CameraMotionCompensator
 import org.tensorflow.lite.examples.objectdetection.detectors.ObjectDetection
 import org.tensorflow.lite.task.core.BaseOptions
 
@@ -53,6 +54,15 @@ class ObjectDetectorHelper(
     private var objectDetector: ObjectDetector? = null
     private val tracker = SimpleTracker()
     private val transformer = CameraCalibrationTransformer()
+
+    // Camera motion compensator for handling handheld/moving camera
+    private val motionCompensator = CameraMotionCompensator(
+        minFeatures = 10,
+        maxFeatures = 100,
+        motionThreshold = 2.0f,
+        borderFraction = 0.15f,
+        debugMode = true  // Set to false in production
+    )
 
     // Per-track recent positions (meters) with timestamps (ms) to compute speed.
     // Map of track id -> deque of Pair(timestampMs, Pair(xMeters, yMeters))
@@ -157,6 +167,9 @@ class ObjectDetectorHelper(
             setupObjectDetector()
         }
 
+        // Estimate camera motion for compensation
+        motionCompensator.estimateMotion(image)
+
         // Create preprocessor for the image.
         // See https://www.tensorflow.org/lite/inference_with_metadata/lite_support#imageprocessor_architecture
 
@@ -222,8 +235,33 @@ class ObjectDetectorHelper(
                             val prevY = prev.second.second
                             val dtMs = (nowMs.toDouble() - prevT)
                             if (dtMs > 0.0) {
-                                val ddx = dx - prevX
-                                val ddy = dy - prevY
+                                var ddx = dx - prevX
+                                var ddy = dy - prevY
+
+                                // Apply camera motion compensation
+                                val globalMotion = motionCompensator.getGlobalMotion()
+                                if (globalMotion != null) {
+                                    // Convert pixel motion to meter motion using camera calibration
+                                    // Sample two points to get the scale
+                                    val p1 = transformer.transformPoint(px, py)
+                                    val p2 = transformer.transformPoint(
+                                        px + globalMotion.x,
+                                        py + globalMotion.y
+                                    )
+                                    val motionDx = p2.first - p1.first
+                                    val motionDy = p2.second - p1.second
+
+                                    // Subtract camera motion from object displacement
+                                    ddx -= motionDx
+                                    ddy -= motionDy
+
+                                    Log.d("ObjectDetectorHelper",
+                                        String.format(Locale.US,
+                                            "Track %d: Camera motion compensation: " +
+                                            "pixel(%.1f,%.1f) -> meters(%.2f,%.2f)",
+                                            id, globalMotion.x, globalMotion.y, motionDx, motionDy))
+                                }
+
                                 val distMeters = sqrt(ddx * ddx + ddy * ddy)
                                 val instSpeed = distMeters / (dtMs / 1000.0) // m/s
 

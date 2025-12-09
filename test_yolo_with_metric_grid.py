@@ -17,12 +17,16 @@ class CombinedTrackerWithMetrics:
         focal_length=26,
         sensor_width=36.0,
         rotation=0,
+        use_motion_compensation=False,
     ):
         model_path = Path(model_path)
         self.tracker = VehicleSpeedTracker(
             model_path=str(model_path),
             reference_width_meters=reference_width_meters,
+            use_motion_compensation=use_motion_compensation,
         )
+        self.use_motion_compensation = use_motion_compensation
+        self.prev_gray = None  # For motion compensation
 
         self.metric_transformer = CameraCalibrationTransformer()
 
@@ -42,6 +46,9 @@ class CombinedTrackerWithMetrics:
         from collections import defaultdict
         self.metric_track_history = defaultdict(list)
         self.metric_speed_estimates = {}
+
+        # Store pixel positions for proper motion compensation
+        self.pixel_track_history = defaultdict(list)
 
         self.bbox_speed_estimates = {}
 
@@ -74,29 +81,59 @@ class CombinedTrackerWithMetrics:
             return None
 
         try:
-            x_meters, y_meters = self.metric_transformer.transform_point(pixel_position)
+            # Store pixel position for motion compensation
+            self.pixel_track_history[track_id].append((pixel_position[0], pixel_position[1], current_time))
 
-            self.metric_track_history[track_id].append((x_meters, y_meters, current_time))
+            if len(self.pixel_track_history[track_id]) > 30:
+                self.pixel_track_history[track_id] = self.pixel_track_history[track_id][-30:]
 
-            if len(self.metric_track_history[track_id]) > 30:
-                self.metric_track_history[track_id] = self.metric_track_history[track_id][-30:]
-
-            if len(self.metric_track_history[track_id]) < 10:
+            if len(self.pixel_track_history[track_id]) < 10:
                 return None
 
-            recent_history = self.metric_track_history[track_id][-15:]
+            recent_pixel_history = self.pixel_track_history[track_id][-15:]
 
-            if len(recent_history) < 2:
+            if len(recent_pixel_history) < 2:
                 return None
 
-            first_pos = recent_history[0]
-            last_pos = recent_history[-1]
+            first_pixel = recent_pixel_history[0]
+            last_pixel = recent_pixel_history[-1]
 
-            displacement_x = last_pos[0] - first_pos[0]
-            displacement_y = last_pos[1] - first_pos[1]
+            # Calculate pixel displacement
+            pixel_dx = last_pixel[0] - first_pixel[0]
+            pixel_dy = last_pixel[1] - first_pixel[1]
+
+            # Apply motion compensation in pixel space
+            if self.use_motion_compensation and len(self.tracker.motion_history) > 0:
+                num_frames = len(recent_pixel_history) - 1
+                recent_motions = self.tracker.motion_history[-num_frames:] if len(self.tracker.motion_history) >= num_frames else self.tracker.motion_history
+
+                # Sum up camera motion over the period
+                total_camera_motion_x = sum(m[0] for m in recent_motions)
+                total_camera_motion_y = sum(m[1] for m in recent_motions)
+
+                print(f"[METRIC Track {track_id}] Pixel displacement: ({pixel_dx:.1f}, {pixel_dy:.1f})px")
+                print(f"[METRIC Track {track_id}] Camera motion: ({total_camera_motion_x:.1f}, {total_camera_motion_y:.1f})px")
+
+                # Subtract camera motion from object displacement
+                pixel_dx -= total_camera_motion_x
+                pixel_dy -= total_camera_motion_y
+
+                print(f"[METRIC Track {track_id}] Compensated displacement: ({pixel_dx:.1f}, {pixel_dy:.1f})px")
+
+            # Transform FIRST and LAST positions to metric space
+            first_metric = self.metric_transformer.transform_point((first_pixel[0], first_pixel[1]))
+            last_compensated_pixel = (first_pixel[0] + pixel_dx, first_pixel[1] + pixel_dy)
+            last_metric = self.metric_transformer.transform_point(last_compensated_pixel)
+
+            # Calculate metric displacement
+            displacement_x = last_metric[0] - first_metric[0]
+            displacement_y = last_metric[1] - first_metric[1]
             displacement_meters = np.sqrt(displacement_x**2 + displacement_y**2)
 
-            time_diff = last_pos[2] - first_pos[2]
+            if self.use_motion_compensation:
+                print(f"[METRIC Track {track_id}] Final metric displacement: {displacement_meters:.2f}m\n")
+
+            time_diff = last_pixel[2] - first_pixel[2]
 
             if time_diff <= 0:
                 return None
@@ -115,6 +152,24 @@ class CombinedTrackerWithMetrics:
 
     def process_frame(self, frame, frame_number):
         frame = self.rotate_frame(frame)
+
+        # Estimate camera motion for compensation (if enabled)
+        if self.use_motion_compensation:
+            curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            if hasattr(self, 'prev_gray') and self.prev_gray is not None:
+                global_motion = self.tracker.estimate_global_motion(self.prev_gray, curr_gray)
+                self.tracker.global_motion = global_motion
+                if global_motion is not None:
+                    motion_mag = np.linalg.norm(global_motion)
+                    print(f"[MOTION Frame {frame_number}] Camera moving: {motion_mag:.2f}px ({global_motion[0]:.2f}, {global_motion[1]:.2f})")
+                    self.tracker.motion_history.append(global_motion)
+                    if len(self.tracker.motion_history) > 30:
+                        self.tracker.motion_history = self.tracker.motion_history[-30:]
+                else:
+                    print(f"[MOTION Frame {frame_number}] Camera stable")
+
+            self.prev_gray = curr_gray.copy()
 
         if not self.transformer_calibrated:
             height, width = frame.shape[:2]
@@ -167,6 +222,7 @@ class CombinedTrackerWithMetrics:
                     bbox_width
                 )
 
+                # Metric method now handles compensation internally
                 metric_speed = self.calculate_metric_speed(
                     track_id,
                     (center_x, center_y),
@@ -439,6 +495,11 @@ def main():
         default=36.0,
         help='Camera sensor width in mm (default: 36.0 for full-frame)'
     )
+    parser.add_argument(
+        '--motion-compensation',
+        action='store_true',
+        help='Enable camera motion compensation for handheld/moving videos'
+    )
 
     args = parser.parse_args()
 
@@ -446,6 +507,11 @@ def main():
     if not video_path.exists():
         print(f"Error: Video file not found: {video_path}")
         return
+
+    if args.motion_compensation:
+        print("✓ Camera motion compensation ENABLED for BBox method")
+    else:
+        print("✗ Camera motion compensation DISABLED (use --motion-compensation to enable)")
 
     combined_tracker = CombinedTrackerWithMetrics(
         model_path=args.model,
@@ -455,6 +521,7 @@ def main():
         focal_length=args.focal_length,
         sensor_width=args.sensor_width,
         rotation=args.rotation,
+        use_motion_compensation=args.motion_compensation,
     )
 
     combined_tracker.process_video(
