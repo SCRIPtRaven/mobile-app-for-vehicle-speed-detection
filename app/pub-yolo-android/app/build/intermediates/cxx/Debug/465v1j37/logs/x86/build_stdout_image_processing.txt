@@ -1,0 +1,2 @@
+ninja: Entering directory `/home/lashoon/pub-yolo-android/app/.cxx/Debug/465v1j37/x86'
+ninja: no work to do.

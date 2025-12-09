@@ -1,0 +1,6 @@
+# ninja log v5
+0	33	1762881777813847193	CMakeFiles/image_processing.dir/image_processing.cpp.o	abef36ee4da32747
+34	54	1762881777833846345	/home/lashoon/pub-yolo-android/app/build/intermediates/cxx/Debug/465v1j37/obj/armeabi-v7a/libimage_processing.so	4b3b9c1bedfe30ad
+0	2	0	clean	2d2f43cf2094d251
+1	41	1762901549238653881	CMakeFiles/image_processing.dir/image_processing.cpp.o	abef36ee4da32747
+42	71	1762901549265319472	/home/lashoon/pub-yolo-android/app/build/intermediates/cxx/Debug/465v1j37/obj/armeabi-v7a/libimage_processing.so	4b3b9c1bedfe30ad

@@ -1,0 +1,4 @@
+/opt/android-sdk/cmake/3.22.1/bin/ninja \
+  -C \
+  /home/lashoon/pub-yolo-android/app/.cxx/Debug/465v1j37/x86_64 \
+  image_processing
