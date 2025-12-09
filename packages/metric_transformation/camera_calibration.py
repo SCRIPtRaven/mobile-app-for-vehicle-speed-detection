@@ -157,22 +157,64 @@ class CameraCalibrationTransformer(MetricTransformer):
 
         return horizon_y
 
+    def inverse_transform_point(self, x_meters: float, y_meters: float) -> Optional[Tuple[int, int]]:
+        if not self._is_calibrated:
+            raise RuntimeError("Transformer must be calibrated first")
+
+        if y_meters <= 0:
+            return None
+
+        # Calculate horizontal angle
+        alpha = np.arctan(x_meters / y_meters) - self._pan_angle
+
+        # Calculate ray elevation from distance
+        ray_elevation = -np.arctan(self._camera_height / y_meters)
+
+        # Calculate beta (vertical view angle)
+        beta = ray_elevation + self._tilt_angle
+
+        # Check if point is below horizon (ray_elevation must be negative)
+        if ray_elevation >= 0:
+            return None
+
+        # Convert angles to normalized coordinates
+        norm_x = alpha / (self._fov_horizontal / 2)
+        norm_y = -beta / (self._fov_vertical / 2)
+
+        # Check if within field of view
+        if abs(norm_x) > 1.0 or abs(norm_y) > 1.0:
+            return None
+
+        # Convert to pixel coordinates
+        x_px = int(norm_x * (self._image_width / 2) + self._image_width / 2)
+        y_px = int(norm_y * (self._image_height / 2) + self._image_height / 2)
+
+        # Verify within image bounds
+        if 0 <= x_px < self._image_width and 0 <= y_px < self._image_height:
+            return (x_px, y_px)
+
+        return None
+
     def draw_metric_grid(
         self,
         frame: npt.NDArray[np.uint8],
         distances: Optional[List[float]] = None,
+        lateral_distances: Optional[List[float]] = None,
         show_horizon: bool = True,
         line_thickness: int = 2,
         text_scale: float = 0.7,
     ) -> npt.NDArray[np.uint8]:
         """
-        Draw metric distance grid lines on a frame.
+        Draw metric distance grid lines on a frame, creating a perspective grid.
         """
         if not self._is_calibrated:
             raise RuntimeError("Transformer must be calibrated before drawing grid")
 
         if distances is None:
             distances = [1, 2, 3, 5, 10, 15, 20, 30, 50]
+
+        if lateral_distances is None:
+            lateral_distances = [-15, -10, -5, -2, 0, 2, 5, 10, 15]
 
         height, width = frame.shape[:2]
         vis_frame = frame.copy()
@@ -239,6 +281,44 @@ class CameraCalibrationTransformer(MetricTransformer):
                         cv2.FONT_HERSHEY_SIMPLEX,
                         text_scale,
                         color,
+                        line_thickness
+                    )
+
+        vertical_color = (0, 255, 0)
+
+        for lateral_dist in lateral_distances:
+            points_on_line = []
+
+            min_depth = min(distances) if distances else 1
+            max_depth = max(distances) if distances else 50
+
+            depth_samples = np.linspace(min_depth, max_depth, 50)
+
+            for depth in depth_samples:
+                pixel_coord = self.inverse_transform_point(lateral_dist, depth)
+                if pixel_coord is not None:
+                    points_on_line.append(pixel_coord)
+
+            if len(points_on_line) > 1:
+                for i in range(len(points_on_line) - 1):
+                    cv2.line(
+                        vis_frame,
+                        points_on_line[i],
+                        points_on_line[i + 1],
+                        vertical_color,
+                        line_thickness
+                    )
+
+                if points_on_line and lateral_dist != 0:
+                    label_x, label_y = points_on_line[-1]
+                    label_text = f"{lateral_dist:+.0f}m" if lateral_dist != 0 else "0m"
+                    cv2.putText(
+                        vis_frame,
+                        label_text,
+                        (label_x - 20, label_y - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        text_scale * 0.8,
+                        vertical_color,
                         line_thickness
                     )
 
