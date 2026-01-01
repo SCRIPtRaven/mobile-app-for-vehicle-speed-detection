@@ -254,11 +254,11 @@ class CameraCalibrationTransformer(
         for (lateralDist in lateralDistances) {
             val points = mutableListOf<PointF>()
 
-            val minDepth = distances.minOrNull() ?: 1f
-            val maxDepth = distances.maxOrNull() ?: 50f
+            val minDepth = 0.1f
+            val maxDepth = 500f
 
             // Sample depths from near to far
-            val numSamples = 50
+            val numSamples = 100
             for (i in 0..numSamples) {
                 val depth = minDepth + (maxDepth - minDepth) * i / numSamples
                 val pixelCoord = inverseTransformPoint(lateralDist.toDouble(), depth.toDouble())

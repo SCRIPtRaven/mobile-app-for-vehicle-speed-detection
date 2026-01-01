@@ -105,3 +105,5 @@ app/pub-yolo-android/app/build/*
 app/pub-yolo-android/.gradle/*
 app/pub-yolo-android/build/*
 app/pub-yolo-android/app/.cxx/*
+
+result.mp4

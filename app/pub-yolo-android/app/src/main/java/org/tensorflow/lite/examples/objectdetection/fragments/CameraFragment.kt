@@ -267,11 +267,11 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
                 }
             }
 
-        // Initialize camera height seekbar (0..200 cm -> 0.0..2.0 m). Default 150 cm = 1.5m
+        // Initialize camera height seekbar (0..1000 cm -> 0.0..10.0 m). Default 150 cm = 1.5m
         try {
             val camSeek = fragmentCameraBinding.bottomSheetLayout.cameraHeightSeek
             val camVal = fragmentCameraBinding.bottomSheetLayout.cameraHeightValue
-            camSeek.max = 200
+            camSeek.max = 1000
             camSeek.progress = (cameraHeightMeters * 100.0).toInt()
             camVal.text = String.format(Locale.US, "%.2fm", cameraHeightMeters)
             camSeek.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
