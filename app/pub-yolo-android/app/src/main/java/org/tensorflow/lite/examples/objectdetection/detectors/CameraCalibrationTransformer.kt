@@ -203,7 +203,7 @@ class CameraCalibrationTransformer(
      * Returns a data structure containing all points needed to draw the perspective grid.
      */
     fun getGridLines(
-        distances: List<Float> = listOf(1f, 2f, 3f, 5f, 10f, 15f, 20f, 30f, 50f),
+        distances: List<Float> = listOf(1f, 2f, 3f, 5f, 10f, 15f, 20f, 30f, 50f, 75f, 100f, 150f, 200f),
         lateralDistances: List<Float> = listOf(-15f, -10f, -5f, -2f, 0f, 2f, 5f, 10f, 15f)
     ): GridLines {
         if (!isCalibrated) throw IllegalStateException("Transformer must be calibrated before drawing grid")
