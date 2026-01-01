@@ -292,7 +292,7 @@ class CameraCalibrationTransformer(MetricTransformer):
             min_depth = 0.1
             max_depth = 500
 
-            depth_samples = np.linspace(min_depth, max_depth, 100)
+            depth_samples = np.linspace(min_depth, max_depth, 50)
 
             for depth in depth_samples:
                 pixel_coord = self.inverse_transform_point(lateral_dist, depth)

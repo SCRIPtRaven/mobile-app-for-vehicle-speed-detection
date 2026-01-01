@@ -81,8 +81,8 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
     private val GRAVITY_FILTER_ALPHA = 0.8f
     private val mainHandler = Handler(Looper.getMainLooper())
     private var lastTiltDeg: Double? = null
-    private val TILT_RECALIBRATION_THRESHOLD_DEG = 1.0 // degrees
-    private val TILT_DEBOUNCE_MS = 500L
+    private val TILT_RECALIBRATION_THRESHOLD_DEG = 0.25 // degrees
+    private val TILT_DEBOUNCE_MS = 100L
     private var lastRecalibrateTs = 0L
 
     // Camera height (meters) controlled by new slider. Default 1.5m
@@ -102,62 +102,28 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
             val rotationMatrix = FloatArray(9)
             android.hardware.SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
 
-            val orientations = FloatArray(3)
-            android.hardware.SensorManager.getOrientation(rotationMatrix, orientations)
-            // orientations[1] is pitch in radians: positive = nose down, negative = nose up
-            val pitchRad = orientations[1].toDouble()
-            val pitchDeg = Math.toDegrees(pitchRad)
+            val cameraTiltDeg = calculateCameraTiltAngle(rotationMatrix)
 
-            // Compensate for portrait camera: when the device is held straight the camera
-            // reports approx -90°. We shift by +90° so "straight" -> 0°.
-            // Then invert the sign so that negative = up and positive = down (user-facing convention).
-            val base = pitchDeg + 90.0
-
-            // Determine whether back camera is facing up. When the device screen faces down,
-            // accelerometer Z will be negative and back camera faces up. When screen faces up,
-            // accelerometer Z positive and back camera faces down.
-            val facingUp = gravity[2] < 0f
-
-            // If facing up, invert sign so negative = up, positive = down. Otherwise keep positive = down.
-            val compensatedTiltDeg = if (facingUp) -base else base
-
-            // Debug log raw and compensated tilt so we can inspect behavior on different devices
-            Log.d(TAG, "rawPitchDeg=${String.format(Locale.US, "%.1f", pitchDeg)}, facingUp=${facingUp}, compensatedTiltDeg=${String.format(Locale.US, "%.1f", compensatedTiltDeg)}")
-
-            // Update UI and possibly recalibrate using compensated tilt
             mainHandler.post {
                 try {
-                    // bottom tilt display removed per request
-                } catch (e: Exception) {
-                    // ignore UI update errors
-                }
-                try {
-                    // also update the toolbar tilt display at top
                     val activity = activity
                     val tv = activity?.findViewById<android.widget.TextView>(R.id.toolbar_tilt_val)
-                    tv?.text = String.format(Locale.US, "%.1f°", compensatedTiltDeg)
+                    tv?.text = String.format(Locale.US, "%.1f°", cameraTiltDeg)
                 } catch (e: Exception) {
-                    // ignore
                 }
             }
 
             val prev = lastTiltDeg
-            lastTiltDeg = compensatedTiltDeg
+            lastTiltDeg = cameraTiltDeg
             val now = System.currentTimeMillis()
-            // Compare compensated tilt (not raw pitch) when deciding to recalibrate
-            if (prev == null || kotlin.math.abs(compensatedTiltDeg - prev) >= TILT_RECALIBRATION_THRESHOLD_DEG) {
-                // debounce rapid changes
+            if (prev == null || kotlin.math.abs(cameraTiltDeg - prev) >= TILT_RECALIBRATION_THRESHOLD_DEG) {
                 if (now - lastRecalibrateTs > TILT_DEBOUNCE_MS) {
                     lastRecalibrateTs = now
-                    // Recalibrate with new tilt: negative is up, positive is down
-                    // Use the sensor-reported pitch as the tilt angle (deg)
                     try {
-                        // Use native camera sensor pixel array size for recalibration
                         val sensorSize = getSensorPixelArraySize()
                         if (sensorSize != null) {
                             val (useWidth, useHeight) = sensorSize
-                            // Use the compensated tilt for calibration
-                            calibrateUsingCamera2Intrinsics(useWidth, useHeight, compensatedTiltDeg, cameraHeightMeters)
+                            calibrateUsingCamera2Intrinsics(useWidth, useHeight, cameraTiltDeg, cameraHeightMeters)
                         } else {
                             Log.w(TAG, "Sensor pixel array size unavailable -> skipping recalibration on tilt change")
                         }
@@ -515,6 +481,45 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         }
     }
 
+    /**
+     * Calculate camera tilt angle from rotation matrix.
+     * Works in both portrait and landscape orientations.
+     *
+     * @param rotationMatrix 3x3 rotation matrix from device to world coordinates
+     * @return Tilt angle in degrees (negative = up, positive = down, 0 = horizontal)
+     */
+    private fun calculateCameraTiltAngle(rotationMatrix: FloatArray): Double {
+        val displayRotation = activity?.windowManager?.defaultDisplay?.rotation ?: android.view.Surface.ROTATION_0
+
+        // Camera optical axis in device coordinates
+        // For back camera, optical axis points OUT OF THE BACK of device
+        // Device coordinates: X=right, Y=top, Z=out of screen (toward user)
+        // Back camera points opposite to screen, so along -Z axis
+        val cameraAxisDevice = floatArrayOf(0f, 0f, -1f)
+
+        // Transform camera axis to world coordinates
+        // rotationMatrix * cameraAxisDevice = cameraAxisWorld
+        val cameraAxisWorld = floatArrayOf(
+            -rotationMatrix[2], // -R[0][2]
+            -rotationMatrix[5], // -R[1][2]
+            -rotationMatrix[8]  // -R[2][2]
+        )
+
+        // In world coordinates: Z points up (sky)
+        // The Z component of camera axis gives us the sine of elevation angle
+        // elevation angle = angle from horizontal plane
+        // Positive elevation = pointing up, negative = pointing down
+        val elevationRad = kotlin.math.asin(cameraAxisWorld[2].toDouble().coerceIn(-1.0, 1.0))
+        val elevationDeg = Math.toDegrees(elevationRad)
+
+        // Tilt angle convention: negative = up, positive = down
+        // elevation is opposite: positive = up, negative = down
+        // So tilt = -elevation
+        val tiltDeg = -elevationDeg
+
+        return tiltDeg
+    }
+
     private fun calibrateUsingCamera2Intrinsics(useWidth: Int, useHeight: Int, tiltDeg: Double, cameraHeightMeters: Double) {
         try {
             if (camera == null) {
@@ -584,6 +589,23 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         imageAnalyzer?.targetRotation = fragmentCameraBinding.viewFinder.display.rotation
+
+        val orientationStr = if (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE) "LANDSCAPE" else "PORTRAIT"
+        Log.i(TAG, "onConfigurationChanged: orientation=$orientationStr")
+
+        try {
+            val sensorSize = getSensorPixelArraySize()
+            if (sensorSize != null && lastTiltDeg != null) {
+                val (useWidth, useHeight) = sensorSize
+                Log.i(TAG, "Recalibrating: sensorSize=${useWidth}x${useHeight}, tilt=$lastTiltDeg")
+                calibrateUsingCamera2Intrinsics(useWidth, useHeight, lastTiltDeg!!, cameraHeightMeters)
+                Log.i(TAG, "Recalibrated after orientation change to $orientationStr")
+            } else {
+                Log.w(TAG, "Cannot recalibrate: sensorSize=$sensorSize, lastTiltDeg=$lastTiltDeg")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to recalibrate on orientation change: ${e.message}", e)
+        }
     }
 
     // Update UI after objects have been detected. Extracts original image height/width

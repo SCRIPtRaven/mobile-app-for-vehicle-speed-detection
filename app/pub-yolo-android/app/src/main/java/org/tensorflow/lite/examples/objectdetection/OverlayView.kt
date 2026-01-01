@@ -269,19 +269,6 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
                     gridPaint
                 )
             }
-
-            // Draw lateral distance label (only for non-zero)
-            if (points.isNotEmpty() && line.lateralMeters != 0f) {
-                val labelPoint = points[points.size - 1]
-                gridTextPaint.color = Color.GREEN
-                val labelText = if (line.lateralMeters > 0) "+${line.lateralMeters.toInt()}m" else "${line.lateralMeters.toInt()}m"
-                canvas.drawText(
-                    labelText,
-                    labelPoint.x * gridScaleFactor - 20f,
-                    labelPoint.y * gridScaleFactor - 5f,
-                    gridTextPaint
-                )
-            }
         }
 
         // Draw horizon line

@@ -217,7 +217,7 @@ class CameraCalibrationTransformer(
             val points = mutableListOf<PointF>()
 
             // Sample across width
-            for (xPx in 0 until imageWidth step max(1, imageWidth / 20)) {
+            for (xPx in 0 until imageWidth step max(1, imageWidth / 15)) {
                 val yMin = horizonY.toInt() + 1
                 val yMax = imageHeight - 1
 
@@ -227,7 +227,7 @@ class CameraCalibrationTransformer(
                 var bestDiff = Float.MAX_VALUE
 
                 // Search vertically for point at this distance
-                for (yPx in yMin until yMax step max(1, (yMax - yMin) / 50)) {
+                for (yPx in yMin until yMax step max(1, (yMax - yMin) / 30)) {
                     try {
                         val (xM, yM) = transformPoint(xPx.toFloat(), yPx.toFloat())
                         val diff = abs(yM - distance.toDouble())
@@ -258,7 +258,7 @@ class CameraCalibrationTransformer(
             val maxDepth = 500f
 
             // Sample depths from near to far
-            val numSamples = 100
+            val numSamples = 50
             for (i in 0..numSamples) {
                 val depth = minDepth + (maxDepth - minDepth) * i / numSamples
                 val pixelCoord = inverseTransformPoint(lateralDist.toDouble(), depth.toDouble())
