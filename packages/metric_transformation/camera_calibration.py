@@ -211,7 +211,7 @@ class CameraCalibrationTransformer(MetricTransformer):
             raise RuntimeError("Transformer must be calibrated before drawing grid")
 
         if distances is None:
-            distances = [1, 2, 3, 5, 10, 15, 20, 30, 50]
+            distances = [1, 2, 3, 5, 10, 15, 20, 30, 50, 75, 100, 150, 200]
 
         if lateral_distances is None:
             lateral_distances = [-15, -10, -5, -2, 0, 2, 5, 10, 15]
