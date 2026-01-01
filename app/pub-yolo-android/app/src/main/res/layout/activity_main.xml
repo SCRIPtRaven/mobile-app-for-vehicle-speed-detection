@@ -36,7 +36,6 @@
         android:keepScreenOn="true"
         app:defaultNavHost="true"
         app:navGraph="@navigation/nav_graph"
-        android:layout_marginTop="?android:attr/actionBarSize"
         tools:context=".MainActivity"/>
 
         <androidx.appcompat.widget.Toolbar
@@ -44,7 +43,10 @@
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             android:layout_alignParentTop="true"
-            android:background="@color/toolbar_background">
+            android:background="#00000000"
+            android:elevation="0dp"
+            app:elevation="0dp"
+            android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -57,8 +59,12 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="0.0°"
-                    android:textColor="@android:color/black"
+                    android:textColor="@android:color/white"
                     android:textSize="18sp"
+                    android:shadowColor="@android:color/black"
+                    android:shadowDx="1"
+                    android:shadowDy="1"
+                    android:shadowRadius="3"
                     android:layout_marginStart="16dp" />
 
                 <View
@@ -71,8 +77,12 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="0 ms"
-                    android:textColor="@android:color/black"
+                    android:textColor="@android:color/white"
                     android:textSize="18sp"
+                    android:shadowColor="@android:color/black"
+                    android:shadowDx="1"
+                    android:shadowDy="1"
+                    android:shadowRadius="3"
                     android:layout_marginEnd="16dp" />
 
             </LinearLayout>

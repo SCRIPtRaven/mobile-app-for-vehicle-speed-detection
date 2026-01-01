@@ -289,8 +289,8 @@ class CameraCalibrationTransformer(MetricTransformer):
         for lateral_dist in lateral_distances:
             points_on_line = []
 
-            min_depth = min(distances) if distances else 1
-            max_depth = max(distances) if distances else 50
+            min_depth = 0.1
+            max_depth = 500
 
             depth_samples = np.linspace(min_depth, max_depth, 50)
 

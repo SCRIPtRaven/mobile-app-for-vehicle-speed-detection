@@ -223,14 +223,34 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
 
             // Draw distance label
             if (points.isNotEmpty()) {
-                val midPoint = points[points.size / 2]
-                gridTextPaint.color = color
-                canvas.drawText(
-                    "${line.distanceMeters.toInt()}m",
-                    midPoint.x * gridScaleFactor + 10f,
-                    midPoint.y * gridScaleFactor,
-                    gridTextPaint
-                )
+                var labelPoint = points.firstOrNull { pt ->
+                    val x = pt.x * gridScaleFactor
+                    val y = pt.y * gridScaleFactor
+                    x >= 0 && x < width && y >= 0 && y < height
+                } ?: points.firstOrNull()
+
+                if (labelPoint != null) {
+                    val labelText = "${line.distanceMeters.toInt()}m"
+                    val textX = (labelPoint.x * gridScaleFactor + 10f).coerceIn(10f, width.toFloat() - 100f)
+                    val textY = (labelPoint.y * gridScaleFactor).coerceIn(30f, height.toFloat() - 10f)
+
+                    val textBounds = android.graphics.Rect()
+                    gridTextPaint.getTextBounds(labelText, 0, labelText.length, textBounds)
+
+                    val bgPaint = Paint()
+                    bgPaint.color = Color.argb(200, 0, 0, 0)
+                    bgPaint.style = Paint.Style.FILL
+                    canvas.drawRect(
+                        textX - 4f,
+                        textY + textBounds.top - 4f,
+                        textX + textBounds.width() + 4f,
+                        textY + textBounds.bottom + 4f,
+                        bgPaint
+                    )
+
+                    gridTextPaint.color = Color.WHITE
+                    canvas.drawText(labelText, textX, textY, gridTextPaint)
+                }
             }
         }
 
@@ -247,19 +267,6 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
                     p2.x * gridScaleFactor,
                     p2.y * gridScaleFactor,
                     gridPaint
-                )
-            }
-
-            // Draw lateral distance label (only for non-zero)
-            if (points.isNotEmpty() && line.lateralMeters != 0f) {
-                val labelPoint = points[points.size - 1]
-                gridTextPaint.color = Color.GREEN
-                val labelText = if (line.lateralMeters > 0) "+${line.lateralMeters.toInt()}m" else "${line.lateralMeters.toInt()}m"
-                canvas.drawText(
-                    labelText,
-                    labelPoint.x * gridScaleFactor - 20f,
-                    labelPoint.y * gridScaleFactor - 5f,
-                    gridTextPaint
                 )
             }
         }
