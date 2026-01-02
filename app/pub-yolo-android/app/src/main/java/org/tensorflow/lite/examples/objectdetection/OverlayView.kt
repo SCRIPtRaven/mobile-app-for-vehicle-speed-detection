@@ -115,7 +115,14 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
             drawGrid(canvas)
         }
 
-        for (result in results) {
+        // median threshold: 1.0 m/s = 3.6 km/h
+        val MIN_SPEED_TO_SHOW = 1.0 // m/s (~3.6 km/h)
+        val movingVehicles = results.filter { result ->
+            val speed = result.speedMps
+            speed != null && speed >= MIN_SPEED_TO_SHOW
+        }
+
+        for (result in movingVehicles) {
             val boundingBox = result.boundingBox
 
             val top = boundingBox.top * scaleFactor

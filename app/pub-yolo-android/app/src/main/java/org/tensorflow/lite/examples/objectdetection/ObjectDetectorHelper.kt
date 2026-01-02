@@ -62,10 +62,20 @@ class ObjectDetectorHelper(
     private val lastPosition = mutableMapOf<Int, Pair<Long, Pair<Double, Double>>>()
     // Keep a deque of recent instantaneous speed samples (m/s) per track to average (last N speeds)
     private val trackSpeedHistory = mutableMapOf<Int, ArrayDeque<Double>>()
-    private val HISTORY_MAX = 10
+    private val HISTORY_MAX = 20
+
+    private var cameraMovementLevel = 0 // 0=stable, 1=minor, 2=moderate, 3=major
+    private val stationaryBaselineSamples = mutableListOf<Pair<Double, Long>>()
+    private val STATIONARY_BASELINE_MAX_SAMPLES = 10
+    private val BASELINE_SAMPLE_EXPIRY_MS = 5000L
+    private val vehicleStationaryFrameCount = mutableMapOf<Int, Int>()
 
     init {
         setupObjectDetector()
+    }
+
+    fun setCameraMovementLevel(level: Int) {
+        cameraMovementLevel = level
     }
 
     fun clearObjectDetector() {
@@ -227,14 +237,55 @@ class ObjectDetectorHelper(
                                 val ddx = dx - prevX
                                 val ddy = dy - prevY
                                 val distMeters = sqrt(ddx * ddx + ddy * ddy)
-                                val instSpeed = distMeters / (dtMs / 1000.0) // m/s
+                                var instSpeed = distMeters / (dtMs / 1000.0) // m/s
 
-                                val speedHistory = trackSpeedHistory.getOrPut(id) { ArrayDeque() }
-                                speedHistory.addLast(instSpeed)
-                                while (speedHistory.size > HISTORY_MAX) speedHistory.removeFirst()
+                                if (cameraMovementLevel == 3) {
+                                    detection.speedMps = null
+                                } else {
+                                    val stationaryThreshold = when (cameraMovementLevel) {
+                                        0 -> 0.1
+                                        1 -> 0.15
+                                        2 -> 0.2
+                                        else -> 0.2
+                                    }
 
-                                val validSpeeds = speedHistory.filter { it.isFinite() && !it.isNaN() }
-                                detection.speedMps = if (validSpeeds.isNotEmpty()) validSpeeds.sum() / validSpeeds.size else null
+                                    val currentCount = vehicleStationaryFrameCount.getOrDefault(id, 0)
+                                    if (instSpeed < stationaryThreshold) {
+                                        vehicleStationaryFrameCount[id] = currentCount + 1
+
+                                        if (vehicleStationaryFrameCount[id]!! >= 3) {
+                                            stationaryBaselineSamples.add(Pair(instSpeed, nowMs))
+                                            if (stationaryBaselineSamples.size > STATIONARY_BASELINE_MAX_SAMPLES) {
+                                                stationaryBaselineSamples.removeAt(0)
+                                            }
+                                        }
+                                    } else {
+                                        vehicleStationaryFrameCount[id] = 0
+                                    }
+
+                                    stationaryBaselineSamples.removeAll { (_, timestamp) ->
+                                        (nowMs - timestamp) > BASELINE_SAMPLE_EXPIRY_MS
+                                    }
+
+                                    if (stationaryBaselineSamples.isNotEmpty()) {
+                                        val baseline = stationaryBaselineSamples.map { it.first }.average()
+                                        instSpeed = (instSpeed - baseline).coerceAtLeast(0.0)
+
+                                        Log.d("BaselineCompensation", String.format(Locale.US,
+                                            "id=%d, raw=%.2f m/s, baseline=%.2f m/s, corrected=%.2f m/s, samples=%d",
+                                            id, instSpeed + baseline, baseline, instSpeed, stationaryBaselineSamples.size))
+                                    }
+
+                                    val speedHistory = trackSpeedHistory.getOrPut(id) { ArrayDeque() }
+                                    speedHistory.addLast(instSpeed)
+                                    while (speedHistory.size > HISTORY_MAX) speedHistory.removeFirst()
+
+                                    val validSpeeds = speedHistory.filter { it.isFinite() && !it.isNaN() }
+                                    detection.speedMps = if (validSpeeds.isNotEmpty()) {
+                                        val sorted = validSpeeds.sorted()
+                                        sorted[sorted.size / 2] // median
+                                    } else null
+                                }
                             } else {
                                 // non-positive time delta -> cannot compute speed
                                 detection.speedMps = null
