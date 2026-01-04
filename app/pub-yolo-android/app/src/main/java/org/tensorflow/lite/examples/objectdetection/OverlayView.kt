@@ -224,7 +224,10 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
             Color.rgb(150, 0, 150)    // Light purple
         )
 
-        // Draw horizontal distance lines
+        // Calculate offset horizon Y for clipping grid lines
+        val offsetHorizonY = grid.horizonY * gridScaleFactor + HORIZON_OFFSET_PX
+
+        // Draw horizontal distance lines (clipped at offset horizon)
         for ((index, line) in grid.horizontalLines.withIndex()) {
             val color = horizontalColors[index % horizontalColors.size]
             gridPaint.color = color
@@ -233,11 +236,21 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
             for (i in 0 until points.size - 1) {
                 val p1 = points[i]
                 val p2 = points[i + 1]
+                val y1 = p1.y * gridScaleFactor
+                val y2 = p2.y * gridScaleFactor
+
+                // Skip line segments that are entirely above the offset horizon
+                if (y1 < offsetHorizonY && y2 < offsetHorizonY) continue
+
+                // Clamp y coordinates to not go above offset horizon
+                val clampedY1 = y1.coerceAtLeast(offsetHorizonY)
+                val clampedY2 = y2.coerceAtLeast(offsetHorizonY)
+
                 canvas.drawLine(
                     p1.x * gridScaleFactor,
-                    p1.y * gridScaleFactor,
+                    clampedY1,
                     p2.x * gridScaleFactor,
-                    p2.y * gridScaleFactor,
+                    clampedY2,
                     gridPaint
                 )
             }
@@ -275,18 +288,28 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
             }
         }
 
-        // Draw vertical lateral lines
+        // Draw vertical lateral lines (clipped at offset horizon)
         gridPaint.color = Color.GREEN
         for (line in grid.verticalLines) {
             val points = line.points
             for (i in 0 until points.size - 1) {
                 val p1 = points[i]
                 val p2 = points[i + 1]
+                val y1 = p1.y * gridScaleFactor
+                val y2 = p2.y * gridScaleFactor
+
+                // Skip line segments that are entirely above the offset horizon
+                if (y1 < offsetHorizonY && y2 < offsetHorizonY) continue
+
+                // Clamp y coordinates to not go above offset horizon
+                val clampedY1 = y1.coerceAtLeast(offsetHorizonY)
+                val clampedY2 = y2.coerceAtLeast(offsetHorizonY)
+
                 canvas.drawLine(
                     p1.x * gridScaleFactor,
-                    p1.y * gridScaleFactor,
+                    clampedY1,
                     p2.x * gridScaleFactor,
-                    p2.y * gridScaleFactor,
+                    clampedY2,
                     gridPaint
                 )
             }
@@ -330,6 +353,6 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
 
     companion object {
         private const val BOUNDING_RECT_TEXT_PADDING = 8
-        private const val HORIZON_OFFSET_PX = 20f
+        private const val HORIZON_OFFSET_PX = 50f
     }
 }

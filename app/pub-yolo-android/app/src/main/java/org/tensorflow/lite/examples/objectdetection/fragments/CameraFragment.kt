@@ -45,6 +45,7 @@ import androidx.fragment.app.Fragment
 import androidx.navigation.Navigation
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import org.tensorflow.lite.examples.objectdetection.ObjectDetectorHelper
 import org.tensorflow.lite.examples.objectdetection.R
 import org.tensorflow.lite.examples.objectdetection.databinding.FragmentCameraBinding
@@ -71,7 +72,8 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
 
     /** Blocking camera operations are performed using this executor */
     private lateinit var cameraExecutor: ExecutorService
-    private var isCalibrated = false
+    private val isCalibrated = AtomicBoolean(false)
+    private val isCalibrating = AtomicBoolean(false)
 
     // Sensor for tilt detection
     private var sensorManager: SensorManager? = null
@@ -502,13 +504,18 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         }
     }
 
+    @Volatile
     private var lastCalibrationRotation: Int? = null
 
     private fun attemptCalibrateIfReady() {
         if (camera == null) return
 
         val currentRotation = activity?.windowManager?.defaultDisplay?.rotation
-        if (isCalibrated && currentRotation == lastCalibrationRotation) {
+        if (isCalibrated.get() && currentRotation == lastCalibrationRotation) {
+            return
+        }
+
+        if (!isCalibrating.compareAndSet(false, true)) {
             return
         }
 
@@ -521,10 +528,12 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
             val (useWidth, useHeight) = sensorSize
             // If no sensor tilt observed yet, default to 0° (straight) after portrait compensation
             calibrateUsingCamera2Intrinsics(useWidth, useHeight, lastTiltDeg ?: 0.0, cameraHeightMeters)
-            isCalibrated = true
+            isCalibrated.set(true)
             lastCalibrationRotation = currentRotation
         } catch (e: Exception) {
             Log.w(TAG, "Camera calibration attempt failed: ${e.message}")
+        } finally {
+            isCalibrating.set(false)
         }
     }
 
