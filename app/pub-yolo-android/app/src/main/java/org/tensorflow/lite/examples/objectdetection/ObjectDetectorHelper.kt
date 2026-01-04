@@ -346,17 +346,25 @@ class ObjectDetectorHelper(
                                         sorted[sorted.size / 2] // median
                                     } else null
                                 }
+
+                                lastPosition[id] = Pair(nowMs, Pair(dx, dy))
                             } else {
-                                detection.speedMps = null
+                                val speedHistory = trackSpeedHistory[id]
+                                if (speedHistory != null && speedHistory.isNotEmpty()) {
+                                    val validSpeeds = speedHistory.filter { it.isFinite() && !it.isNaN() }
+                                    detection.speedMps = if (validSpeeds.isNotEmpty()) {
+                                        val sorted = validSpeeds.sorted()
+                                        sorted[sorted.size / 2]
+                                    } else null
+                                } else {
+                                    detection.speedMps = null
+                                }
                             }
                         } else {
-                            // No previous sample yet; init speed history but cannot compute speed
                             trackSpeedHistory.getOrPut(id) { ArrayDeque() }
                             detection.speedMps = null
+                            lastPosition[id] = Pair(nowMs, Pair(dx, dy))
                         }
-
-                        // Update lastPosition for next frame
-                        lastPosition[id] = Pair(nowMs, Pair(dx, dy))
                     } else {
                         detection.speedMps = null
                     }

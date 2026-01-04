@@ -133,11 +133,11 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
                 objectDetectorHelper?.setCameraMovementLevel(cameraMovementLevel)
 
                 val minSpeedThreshold = when (cameraMovementLevel) {
-                    0 -> 1.0   // Stable: 1.0 m/s (3.6 km/h)
+                    0 -> 2.5   // Stable: 2.5 m/s (9 km/h)
                     1 -> 3.0   // Minor shake: 3.0 m/s (10.8 km/h)
-                    2 -> 5.0   // Moderate shake: 5.0 m/s (18 km/h)
-                    3 -> 10.0  // Major shake: 10.0 m/s (36 km/h) - speeds are null anyway
-                    else -> 1.0
+                    2 -> 3.5   // Moderate shake: 3.5 m/s (12.6 km/h)
+                    3 -> 5.0   // Major shake: 5.0 m/s (18 km/h)
+                    else -> 2.5
                 }
                 fragmentCameraBinding.overlay.setMinSpeedThreshold(minSpeedThreshold)
 
