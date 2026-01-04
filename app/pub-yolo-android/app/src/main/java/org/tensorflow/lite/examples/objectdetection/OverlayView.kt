@@ -293,11 +293,12 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
         }
 
         // Draw horizon line
+        val horizonY = grid.horizonY * gridScaleFactor + HORIZON_OFFSET_PX
         canvas.drawLine(
             0f,
-            grid.horizonY * gridScaleFactor,
+            horizonY,
             width.toFloat(),
-            grid.horizonY * gridScaleFactor,
+            horizonY,
             horizonPaint
         )
 
@@ -307,7 +308,7 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
         canvas.drawText(
             "HORIZON",
             10f,
-            grid.horizonY * gridScaleFactor - 10f,
+            horizonY - 10f,
             gridTextPaint
         )
         gridTextPaint.textSize = 32f // Reset
@@ -329,5 +330,6 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
 
     companion object {
         private const val BOUNDING_RECT_TEXT_PADDING = 8
+        private const val HORIZON_OFFSET_PX = 20f
     }
 }
