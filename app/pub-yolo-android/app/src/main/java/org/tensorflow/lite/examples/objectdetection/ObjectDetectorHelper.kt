@@ -62,13 +62,40 @@ class ObjectDetectorHelper(
     private val lastPosition = mutableMapOf<Int, Pair<Long, Pair<Double, Double>>>()
     // Keep a deque of recent instantaneous speed samples (m/s) per track to average (last N speeds)
     private val trackSpeedHistory = mutableMapOf<Int, ArrayDeque<Double>>()
+    private val trackSmoothedDistance = mutableMapOf<Int, Double>()
     private val HISTORY_MAX = 20
+    private val DISTANCE_SMOOTHING_ALPHA = 0.3 // Lower = more smoothing, higher = more responsive
+    private val MIN_TIME_DELTA_MS = 200.0 // Minimum time between frames to calculate speed (avoid rapid frame jitter)
 
     private var cameraMovementLevel = 0 // 0=stable, 1=minor, 2=moderate, 3=major
     private val stationaryBaselineSamples = mutableListOf<Pair<Double, Long>>()
     private val STATIONARY_BASELINE_MAX_SAMPLES = 10
     private val BASELINE_SAMPLE_EXPIRY_MS = 5000L
     private val vehicleStationaryFrameCount = mutableMapOf<Int, Int>()
+    private val trackPositionHistory = mutableMapOf<Int, ArrayDeque<Pair<Double, Double>>>()
+    private val POSITION_HISTORY_SIZE = 10
+
+    private fun isVehicleStationary(trackId: Int): Boolean {
+        val positions = trackPositionHistory[trackId] ?: return false
+        if (positions.size < 5) return false
+
+        val meanX = positions.map { it.first }.average()
+        val meanY = positions.map { it.second }.average()
+
+        val firstPos = positions.first()
+        val lastPos = positions.last()
+        val dx = lastPos.first - firstPos.first
+        val dy = lastPos.second - firstPos.second
+        val totalDrift = sqrt(dx * dx + dy * dy)
+
+        val variance = positions.map { pos ->
+            val deltaX = pos.first - meanX
+            val deltaY = pos.second - meanY
+            sqrt(deltaX * deltaX + deltaY * deltaY)
+        }.average()
+
+        return totalDrift < 2.0 && variance > 0.1
+    }
 
     private fun unrotatePoint(px: Float, py: Float, imageRotation: Int): Pair<Float, Float> {
         val width = transformer.getImageWidth().toFloat()
@@ -222,8 +249,12 @@ class ObjectDetectorHelper(
             // Compute scaling factors to map model output coordinates (results.image) to the
             // original camera image coordinates (image). TaskVisionDetector returns boxes in a
             // fixed internal resolution (e.g. 640x480), while the camera frame may be larger.
-            val scaleX = transformer.getImageWidth() / results.image.width
-            val scaleY = transformer.getImageHeight() / results.image.height
+            val (scaleX, scaleY) = if (imageRotation == 0) {
+                Pair(transformer.getImageHeight() / results.image.width, transformer.getImageWidth() / results.image.height)
+            } else {
+                Pair(transformer.getImageWidth() / results.image.width, transformer.getImageHeight() / results.image.height)
+            }
+
 
             val nowMs = SystemClock.uptimeMillis()
 
@@ -240,16 +271,35 @@ class ObjectDetectorHelper(
                     // use bottom of bbox as the contact point with ground
                     val py = origBottom
 
-                    val (unrotatedPx, unrotatedPy) = unrotatePoint(px, py, imageRotation)
-                    val metersPair = transformer.transformPoint(unrotatedPx, unrotatedPy)
+                    val metersPair = transformer.transformPoint(px, py)
                     val dx = metersPair.first
                     val dy = metersPair.second
-                    val dist = sqrt(dx * dx + dy * dy)
-                    Log.e("ObjectDetectorHelper", String.format(Locale.US, "dx: %.2f m, dy: %.2f m, dist: %.2f m", dx, dy, dist))
-                    detection.distanceInMeters = dist
+                    val rawDist = sqrt(dx * dx + dy * dy)
 
-                    // Compute speed using lastPosition + a short deque of recent speeds (last N samples)
                     val id = detection.id
+
+                    if (id != null) {
+                        val posHistory = trackPositionHistory.getOrPut(id) { ArrayDeque() }
+                        posHistory.addLast(Pair(dx, dy))
+                        while (posHistory.size > POSITION_HISTORY_SIZE) posHistory.removeFirst()
+                    }
+
+                    val smoothedDist = if (id != null) {
+                        val prevSmoothed = trackSmoothedDistance[id]
+                        val newSmoothed = if (prevSmoothed != null) {
+                            DISTANCE_SMOOTHING_ALPHA * rawDist + (1.0 - DISTANCE_SMOOTHING_ALPHA) * prevSmoothed
+                        } else {
+                            rawDist
+                        }
+                        trackSmoothedDistance[id] = newSmoothed
+                        newSmoothed
+                    } else {
+                        rawDist
+                    }
+
+                    Log.e("ObjectDetectorHelper", String.format(Locale.US, "dx: %.2f m, dy: %.2f m, dist: %.2f m (smoothed: %.2f m)", dx, dy, rawDist, smoothedDist))
+                    detection.distanceInMeters = smoothedDist
+
                     if (id != null) {
                         val prev = lastPosition[id]
                         if (prev != null) {
@@ -257,7 +307,7 @@ class ObjectDetectorHelper(
                             val prevX = prev.second.first
                             val prevY = prev.second.second
                             val dtMs = (nowMs.toDouble() - prevT)
-                            if (dtMs > 0.0) {
+                            if (dtMs >= MIN_TIME_DELTA_MS) {
                                 val ddx = dx - prevX
                                 val ddy = dy - prevY
                                 val distMeters = sqrt(ddx * ddx + ddy * ddy)
@@ -266,25 +316,11 @@ class ObjectDetectorHelper(
                                 if (cameraMovementLevel == 3) {
                                     detection.speedMps = null
                                 } else {
-                                    val stationaryThreshold = when (cameraMovementLevel) {
-                                        0 -> 0.1
-                                        1 -> 0.15
-                                        2 -> 0.2
-                                        else -> 0.2
-                                    }
-
-                                    val currentCount = vehicleStationaryFrameCount.getOrDefault(id, 0)
-                                    if (instSpeed < stationaryThreshold) {
-                                        vehicleStationaryFrameCount[id] = currentCount + 1
-
-                                        if (vehicleStationaryFrameCount[id]!! >= 3) {
-                                            stationaryBaselineSamples.add(Pair(instSpeed, nowMs))
-                                            if (stationaryBaselineSamples.size > STATIONARY_BASELINE_MAX_SAMPLES) {
-                                                stationaryBaselineSamples.removeAt(0)
-                                            }
+                                    if (isVehicleStationary(id)) {
+                                        stationaryBaselineSamples.add(Pair(instSpeed, nowMs))
+                                        if (stationaryBaselineSamples.size > STATIONARY_BASELINE_MAX_SAMPLES) {
+                                            stationaryBaselineSamples.removeAt(0)
                                         }
-                                    } else {
-                                        vehicleStationaryFrameCount[id] = 0
                                     }
 
                                     stationaryBaselineSamples.removeAll { (_, timestamp) ->
@@ -311,7 +347,6 @@ class ObjectDetectorHelper(
                                     } else null
                                 }
                             } else {
-                                // non-positive time delta -> cannot compute speed
                                 detection.speedMps = null
                             }
                         } else {
@@ -332,6 +367,13 @@ class ObjectDetectorHelper(
                     detection.speedMps = null
                 }
             }
+
+            val currentIds = results.detections.mapNotNull { it.id }.toSet()
+            lastPosition.keys.retainAll(currentIds)
+            trackSpeedHistory.keys.retainAll(currentIds)
+            trackSmoothedDistance.keys.retainAll(currentIds)
+            trackPositionHistory.keys.retainAll(currentIds)
+            vehicleStationaryFrameCount.keys.retainAll(currentIds)
 
             objectDetectorListener?.onResults(
                 results.detections,
@@ -357,7 +399,8 @@ class ObjectDetectorHelper(
         tiltAngleDeg: Double = -6.0,
         panAngleDeg: Double = 0.0,
         focalLengthMm: Double? = null,
-        sensorWidthMm: Double? = null
+        sensorWidthMm: Double? = null,
+        displayRotation: Int = 0
     ) {
         try {
             // Use provided intrinsics if present, otherwise fall back to sensible defaults.
@@ -371,7 +414,8 @@ class ObjectDetectorHelper(
                 sensorWidthMm = sensorW,
                 panAngleDeg = panAngleDeg,
                 imageWidth = imageWidth,
-                imageHeight = imageHeight
+                imageHeight = imageHeight,
+                displayRotation = displayRotation
             )
 
             Log.i("ObjectDetectorHelper", "Transformer calibrated: focal=${focal}mm, sensorW=${sensorW}mm, img=${imageWidth}x${imageHeight}")

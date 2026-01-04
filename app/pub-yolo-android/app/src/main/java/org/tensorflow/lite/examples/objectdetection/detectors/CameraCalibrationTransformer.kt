@@ -25,6 +25,7 @@ class CameraCalibrationTransformer(
     private var imageWidth: Int = 0
     private var imageHeight: Int = 0
     private var isCalibrated = false
+    private var displayRotation: Int = 0
 
     fun getImageWidth(): Int = imageWidth
     fun getImageHeight(): Int = imageHeight
@@ -36,7 +37,8 @@ class CameraCalibrationTransformer(
         sensorWidthMm: Double = 36.0,
         panAngleDeg: Double = 0.0,
         imageWidth: Int = 3072,
-        imageHeight: Int = 4096
+        imageHeight: Int = 4096,
+        displayRotation: Int = 0
     ) {
         if (cameraHeight <= 0.0) throw IllegalArgumentException("cameraHeight must be positive, got $cameraHeight")
         if (tiltAngleDeg < -45.0 || tiltAngleDeg > 90.0) throw IllegalArgumentException("tiltAngle must be between -45 and 90 degrees, got $tiltAngleDeg")
@@ -44,12 +46,16 @@ class CameraCalibrationTransformer(
         if (sensorWidthMm <= 0.0) throw IllegalArgumentException("sensorWidth must be positive, got $sensorWidthMm")
 
         this.cameraHeight = cameraHeight
-        this.tiltAngleRad = Math.toRadians(tiltAngleDeg)
         this.panAngleRad = Math.toRadians(panAngleDeg)
         this.focalLengthMm = focalLengthMm
         this.sensorWidthMm = sensorWidthMm
         this.imageWidth = imageWidth
         this.imageHeight = imageHeight
+        this.displayRotation = displayRotation
+
+        val isPortrait = (displayRotation == 0 || displayRotation == 180)
+        val tiltCompensation = if (isPortrait) 0.75 else 1.0
+        this.tiltAngleRad = Math.toRadians(tiltAngleDeg) * tiltCompensation
 
         // horizontal field of view (radians)
         this.fovHorizontal = 2.0 * atan(sensorWidthMm / (2.0 * focalLengthMm))
@@ -144,6 +150,7 @@ class CameraCalibrationTransformer(
     /**
      * Compute the y pixel coordinate of the horizon line. Points above this y are above the horizon
      * and won't intersect the ground plane.
+     * Returns horizon in sensor native coordinate space.
      */
     fun getHorizonLine(): Double {
         if (!isCalibrated) throw IllegalStateException("Transformer must be calibrated first")
@@ -154,6 +161,8 @@ class CameraCalibrationTransformer(
         val horizonY = normY * (imageHeight / 2.0) + imageHeight / 2.0
         return horizonY
     }
+
+    fun getDisplayRotation(): Int = displayRotation
 
     /**
      * Inverse transform: Convert ground plane meters to pixel coordinates.

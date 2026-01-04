@@ -48,6 +48,9 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
     private var gridImageHeight: Int = 0
     private var gridScaleFactor: Float = 1f
 
+    private var showStationary: Boolean = false
+    private var minSpeedToShow: Double = 1.0
+
     // Palette of distinct colors to assign per tracking id
     private val palette = intArrayOf(
         Color.parseColor("#e6194b"), // red
@@ -115,14 +118,16 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
             drawGrid(canvas)
         }
 
-        // median threshold: 1.0 m/s = 3.6 km/h
-        val MIN_SPEED_TO_SHOW = 1.0 // m/s (~3.6 km/h)
-        val movingVehicles = results.filter { result ->
-            val speed = result.speedMps
-            speed != null && speed >= MIN_SPEED_TO_SHOW
+        val vehiclesToShow = if (showStationary) {
+            results
+        } else {
+            results.filter { result ->
+                val speed = result.speedMps
+                speed != null && speed >= minSpeedToShow
+            }
         }
 
-        for (result in movingVehicles) {
+        for (result in vehiclesToShow) {
             val boundingBox = result.boundingBox
 
             val top = boundingBox.top * scaleFactor
@@ -182,6 +187,16 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
 
     fun setGridEnabled(enabled: Boolean) {
         showGrid = enabled
+        invalidate()
+    }
+
+    fun setShowStationary(enabled: Boolean) {
+        showStationary = enabled
+        invalidate()
+    }
+
+    fun setMinSpeedThreshold(speedMps: Double) {
+        minSpeedToShow = speedMps
         invalidate()
     }
 

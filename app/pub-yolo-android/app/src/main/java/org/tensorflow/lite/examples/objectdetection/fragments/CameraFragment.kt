@@ -130,6 +130,15 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
 
                 objectDetectorHelper?.setCameraMovementLevel(cameraMovementLevel)
 
+                val minSpeedThreshold = when (cameraMovementLevel) {
+                    0 -> 1.0   // Stable: 1.0 m/s (3.6 km/h)
+                    1 -> 3.0   // Minor shake: 3.0 m/s (10.8 km/h)
+                    2 -> 5.0   // Moderate shake: 5.0 m/s (18 km/h)
+                    3 -> 10.0  // Major shake: 10.0 m/s (36 km/h) - speeds are null anyway
+                    else -> 1.0
+                }
+                fragmentCameraBinding.overlay.setMinSpeedThreshold(minSpeedThreshold)
+
                 return
             }
 
@@ -320,6 +329,15 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
                 fragmentCameraBinding.overlay.invalidate()
             }
         } catch (e: Exception) {
+        }
+
+        try {
+            val stationaryToggle = fragmentCameraBinding.bottomSheetLayout.stationaryToggle
+            stationaryToggle.setOnCheckedChangeListener { _, isChecked ->
+                fragmentCameraBinding.overlay.setShowStationary(isChecked)
+                fragmentCameraBinding.overlay.invalidate()
+            }
+        } catch (e: Exception) {
             // ignore binding errors
         }
 
@@ -484,9 +502,16 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         }
     }
 
+    private var lastCalibrationRotation: Int? = null
+
     private fun attemptCalibrateIfReady() {
-        if (isCalibrated) return
         if (camera == null) return
+
+        val currentRotation = activity?.windowManager?.defaultDisplay?.rotation
+        if (isCalibrated && currentRotation == lastCalibrationRotation) {
+            return
+        }
+
         try {
             val sensorSize = getSensorPixelArraySize()
             if (sensorSize == null) {
@@ -497,6 +522,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
             // If no sensor tilt observed yet, default to 0° (straight) after portrait compensation
             calibrateUsingCamera2Intrinsics(useWidth, useHeight, lastTiltDeg ?: 0.0, cameraHeightMeters)
             isCalibrated = true
+            lastCalibrationRotation = currentRotation
         } catch (e: Exception) {
             Log.w(TAG, "Camera calibration attempt failed: ${e.message}")
         }
@@ -560,10 +586,18 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
     }
 
     private fun calibrateUsingCamera2Intrinsics(useWidth: Int, useHeight: Int, tiltDeg: Double, cameraHeightMeters: Double) {
+        val displayRotationDegrees = when (activity?.windowManager?.defaultDisplay?.rotation) {
+            android.view.Surface.ROTATION_0 -> 0
+            android.view.Surface.ROTATION_90 -> 90
+            android.view.Surface.ROTATION_180 -> 180
+            android.view.Surface.ROTATION_270 -> 270
+            else -> 0
+        }
+
         try {
             if (camera == null) {
                 // fallback to buffer-only calibration
-                objectDetectorHelper.calibrateFromCamera(useWidth, useHeight, cameraHeightMeters, tiltAngleDeg = tiltDeg)
+                objectDetectorHelper.calibrateFromCamera(useWidth, useHeight, cameraHeightMeters, tiltAngleDeg = tiltDeg, displayRotation = displayRotationDegrees)
                 updateGridVisualization()
                 return
             }
@@ -590,13 +624,13 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
                 Log.w(TAG, "Could not read sensor physical size from Camera2 characteristics: ${e.message}")
             }
 
-            objectDetectorHelper.calibrateFromCamera(useWidth, useHeight, cameraHeightMeters, tiltAngleDeg = tiltDeg, focalLengthMm = focalLengthMm, sensorWidthMm = sensorWidthMm)
+            objectDetectorHelper.calibrateFromCamera(useWidth, useHeight, cameraHeightMeters, tiltAngleDeg = tiltDeg, focalLengthMm = focalLengthMm, sensorWidthMm = sensorWidthMm, displayRotation = displayRotationDegrees)
             Log.i(TAG, "Calibrated using Camera2 intrinsics: focal=${focalLengthMm ?: "n/a"}, sensorW=${sensorWidthMm ?: "n/a"}, img=${useWidth}x${useHeight}")
             updateGridVisualization()
         } catch (e: Exception) {
             Log.w(TAG, "calibrateUsingCamera2Intrinsics failed, falling back: ${e.message}")
             // fallback
-            objectDetectorHelper.calibrateFromCamera(useWidth, useHeight, cameraHeightMeters, tiltAngleDeg = tiltDeg)
+            objectDetectorHelper.calibrateFromCamera(useWidth, useHeight, cameraHeightMeters, tiltAngleDeg = tiltDeg, displayRotation = displayRotationDegrees)
             updateGridVisualization()
         }
     }
@@ -621,6 +655,9 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         }
 
         val imageRotation = image.imageInfo.rotationDegrees
+
+        attemptCalibrateIfReady()
+
         // Pass Bitmap and rotation to the object detector helper for processing and detection
         objectDetectorHelper.detect(bitmapBuffer, imageRotation)
     }
