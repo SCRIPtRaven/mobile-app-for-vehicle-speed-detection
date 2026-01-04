@@ -70,6 +70,30 @@ class ObjectDetectorHelper(
     private val BASELINE_SAMPLE_EXPIRY_MS = 5000L
     private val vehicleStationaryFrameCount = mutableMapOf<Int, Int>()
 
+    private fun unrotatePoint(px: Float, py: Float, imageRotation: Int): Pair<Float, Float> {
+        val width = transformer.getImageWidth().toFloat()
+        val height = transformer.getImageHeight().toFloat()
+
+        return when (imageRotation) {
+            0 -> Pair(px, py)
+            90 -> {
+                // For 90° rotation: rotated dimensions are (height x width)
+                // Point (px, py) in rotated space maps to (py, width - px) in original space
+                Pair(py, width - px)
+            }
+            180 -> {
+                // For 180° rotation: dimensions stay the same
+                Pair(width - px, height - py)
+            }
+            270 -> {
+                // For 270° rotation: rotated dimensions are (height x width)
+                // Point (px, py) in rotated space maps to (height - py, px) in original space
+                Pair(height - py, px)
+            }
+            else -> Pair(px, py)
+        }
+    }
+
     init {
         setupObjectDetector()
     }
@@ -217,7 +241,9 @@ class ObjectDetectorHelper(
                     val px = (origLeft + origRight) / 2.0f
                     // use bottom of bbox as the contact point with ground
                     val py = origBottom
-                    val metersPair = transformer.transformPoint(px, py)
+
+                    val (unrotatedPx, unrotatedPy) = unrotatePoint(px, py, imageRotation)
+                    val metersPair = transformer.transformPoint(unrotatedPx, unrotatedPy)
                     val dx = metersPair.first
                     val dy = metersPair.second
                     val dist = sqrt(dx * dx + dy * dy)
