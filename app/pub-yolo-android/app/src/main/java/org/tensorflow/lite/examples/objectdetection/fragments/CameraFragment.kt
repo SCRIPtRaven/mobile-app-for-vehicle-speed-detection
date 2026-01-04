@@ -77,6 +77,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
     private var sensorManager: SensorManager? = null
     private var rotationVectorSensor: Sensor? = null
     private var accelerometerSensor: Sensor? = null
+    private var gyroscopeSensor: Sensor? = null
     private val gravity = FloatArray(3) { 0f }
     private val GRAVITY_FILTER_ALPHA = 0.8f
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -84,6 +85,16 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
     private val TILT_RECALIBRATION_THRESHOLD_DEG = 0.25 // degrees
     private val TILT_DEBOUNCE_MS = 100L
     private var lastRecalibrateTs = 0L
+
+    // Camera movement detection
+    private var rotationRate = FloatArray(3) { 0f } // rad/s around x, y, z axes
+    private val GYRO_FILTER_ALPHA = 0.8f
+    private var cameraMovementLevel = 0 // 0=stable, 1=minor, 2=moderate, 3=major
+
+    // Movement thresholds (rad/s)
+    private val MOVEMENT_THRESHOLD_MINOR = 0.009 // ~0.5 deg/s
+    private val MOVEMENT_THRESHOLD_MODERATE = 0.087 // ~5 deg/s
+    private val MOVEMENT_THRESHOLD_MAJOR = 0.175 // ~10 deg/s
 
     // Camera height (meters) controlled by new slider. Default 1.5m
     private var cameraHeightMeters: Double = 1.5
@@ -98,6 +109,30 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
                 gravity[2] = GRAVITY_FILTER_ALPHA * gravity[2] + (1 - GRAVITY_FILTER_ALPHA) * event.values[2]
                 return
             }
+
+            if (event.sensor.type == Sensor.TYPE_GYROSCOPE) {
+                rotationRate[0] = GYRO_FILTER_ALPHA * rotationRate[0] + (1 - GYRO_FILTER_ALPHA) * event.values[0]
+                rotationRate[1] = GYRO_FILTER_ALPHA * rotationRate[1] + (1 - GYRO_FILTER_ALPHA) * event.values[1]
+                rotationRate[2] = GYRO_FILTER_ALPHA * rotationRate[2] + (1 - GYRO_FILTER_ALPHA) * event.values[2]
+
+                val rotationMagnitude = kotlin.math.sqrt(
+                    rotationRate[0] * rotationRate[0] +
+                    rotationRate[1] * rotationRate[1] +
+                    rotationRate[2] * rotationRate[2]
+                )
+
+                cameraMovementLevel = when {
+                    rotationMagnitude > MOVEMENT_THRESHOLD_MAJOR -> 3
+                    rotationMagnitude > MOVEMENT_THRESHOLD_MODERATE -> 2
+                    rotationMagnitude > MOVEMENT_THRESHOLD_MINOR -> 1
+                    else -> 0
+                }
+
+                objectDetectorHelper?.setCameraMovementLevel(cameraMovementLevel)
+
+                return
+            }
+
             if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
             val rotationMatrix = FloatArray(9)
             android.hardware.SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
@@ -155,6 +190,10 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         rotationVectorSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
         rotationVectorSensor?.also {
             sensorManager?.registerListener(rotationListener, it, SensorManager.SENSOR_DELAY_UI)
+        }
+        gyroscopeSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+        gyroscopeSensor?.also {
+            sensorManager?.registerListener(rotationListener, it, SensorManager.SENSOR_DELAY_GAME)
         }
     }
 
