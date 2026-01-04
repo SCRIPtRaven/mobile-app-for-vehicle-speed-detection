@@ -98,7 +98,6 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
 
     // Camera height (meters) controlled by new slider. Default 1.5m
     private var cameraHeightMeters: Double = 1.5
-    private var currentImageRotation: Int = 0
 
     private val rotationListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
@@ -513,8 +512,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
                 fragmentCameraBinding.overlay.setGridLines(
                     gridLines,
                     transformer.getImageWidth(),
-                    transformer.getImageHeight(),
-                    currentImageRotation
+                    transformer.getImageHeight()
                 )
             }
         } catch (e: Exception) {
@@ -623,12 +621,6 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         }
 
         val imageRotation = image.imageInfo.rotationDegrees
-
-        if (imageRotation != currentImageRotation) {
-            currentImageRotation = imageRotation
-            updateGridVisualization()
-        }
-
         // Pass Bitmap and rotation to the object detector helper for processing and detection
         objectDetectorHelper.detect(bitmapBuffer, imageRotation)
     }

@@ -77,18 +77,16 @@ class ObjectDetectorHelper(
         return when (imageRotation) {
             0 -> Pair(px, py)
             90 -> {
-                // For 90° rotation: rotated dimensions are (height x width)
-                // Point (px, py) in rotated space maps to (py, width - px) in original space
-                Pair(py, width - px)
+                // Inverse of 90° CW: (px, py) → (py, H - px)
+                Pair(py, height - px)
             }
             180 -> {
-                // For 180° rotation: dimensions stay the same
+                // Inverse of 180°: (px, py) → (W - px, H - py)
                 Pair(width - px, height - py)
             }
             270 -> {
-                // For 270° rotation: rotated dimensions are (height x width)
-                // Point (px, py) in rotated space maps to (height - py, px) in original space
-                Pair(height - py, px)
+                // Inverse of 270° CW: (px, py) → (W - py, px)
+                Pair(width - py, px)
             }
             else -> Pair(px, py)
         }
