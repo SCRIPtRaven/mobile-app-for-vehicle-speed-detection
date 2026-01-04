@@ -47,6 +47,7 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
     private var gridImageWidth: Int = 0
     private var gridImageHeight: Int = 0
     private var gridScaleFactor: Float = 1f
+    private var imageRotation: Int = 0
 
     // Palette of distinct colors to assign per tracking id
     private val palette = intArrayOf(
@@ -185,13 +186,38 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
         invalidate()
     }
 
-    fun setGridLines(grid: GridLines?, imageWidth: Int, imageHeight: Int) {
+    fun setGridLines(grid: GridLines?, imageWidth: Int, imageHeight: Int, rotation: Int = 0) {
         gridLines = grid
         gridImageWidth = imageWidth
         gridImageHeight = imageHeight
-        // Calculate scale factor for grid based on transformer's image dimensions
-        gridScaleFactor = max(width * 1f / imageWidth, height * 1f / imageHeight)
+        imageRotation = rotation
+
+        val effectiveWidth = if (rotation == 90 || rotation == 270) imageHeight else imageWidth
+        val effectiveHeight = if (rotation == 90 || rotation == 270) imageWidth else imageHeight
+
+        gridScaleFactor = max(width * 1f / effectiveWidth, height * 1f / effectiveHeight)
         invalidate()
+    }
+
+    private fun rotateGridPoint(x: Float, y: Float): android.graphics.PointF {
+        return when (imageRotation) {
+            0 -> android.graphics.PointF(x, y)
+            90 -> {
+                // For 90° CW rotation: original (W x H) becomes (H x W)
+                // Point (x, y) → (y, W - x)
+                android.graphics.PointF(y, gridImageWidth - x)
+            }
+            180 -> {
+                // For 180° rotation: (x, y) → (W - x, H - y)
+                android.graphics.PointF(gridImageWidth - x, gridImageHeight - y)
+            }
+            270 -> {
+                // For 270° CW rotation: original (W x H) becomes (H x W)
+                // Point (x, y) → (H - y, x)
+                android.graphics.PointF(gridImageHeight - y, x)
+            }
+            else -> android.graphics.PointF(x, y)
+        }
     }
 
     private fun drawGrid(canvas: Canvas) {
@@ -217,8 +243,8 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
 
             val points = line.points
             for (i in 0 until points.size - 1) {
-                val p1 = points[i]
-                val p2 = points[i + 1]
+                val p1 = rotateGridPoint(points[i].x, points[i].y)
+                val p2 = rotateGridPoint(points[i + 1].x, points[i + 1].y)
                 canvas.drawLine(
                     p1.x * gridScaleFactor,
                     p1.y * gridScaleFactor,
@@ -230,11 +256,11 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
 
             // Draw distance label
             if (points.isNotEmpty()) {
-                var labelPoint = points.firstOrNull { pt ->
+                var labelPoint = points.map { pt -> rotateGridPoint(pt.x, pt.y) }.firstOrNull { pt ->
                     val x = pt.x * gridScaleFactor
                     val y = pt.y * gridScaleFactor
                     x >= 0 && x < width && y >= 0 && y < height
-                } ?: points.firstOrNull()
+                }
 
                 if (labelPoint != null) {
                     val labelText = "${line.distanceMeters.toInt()}m"
@@ -266,8 +292,8 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
         for (line in grid.verticalLines) {
             val points = line.points
             for (i in 0 until points.size - 1) {
-                val p1 = points[i]
-                val p2 = points[i + 1]
+                val p1 = rotateGridPoint(points[i].x, points[i].y)
+                val p2 = rotateGridPoint(points[i + 1].x, points[i + 1].y)
                 canvas.drawLine(
                     p1.x * gridScaleFactor,
                     p1.y * gridScaleFactor,
@@ -279,11 +305,13 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
         }
 
         // Draw horizon line
+        val horizonStart = rotateGridPoint(0f, grid.horizonY)
+        val horizonEnd = rotateGridPoint(gridImageWidth.toFloat(), grid.horizonY)
         canvas.drawLine(
-            0f,
-            grid.horizonY * gridScaleFactor,
-            width.toFloat(),
-            grid.horizonY * gridScaleFactor,
+            horizonStart.x * gridScaleFactor,
+            horizonStart.y * gridScaleFactor,
+            horizonEnd.x * gridScaleFactor,
+            horizonEnd.y * gridScaleFactor,
             horizonPaint
         )
 
@@ -292,8 +320,8 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
         gridTextPaint.textSize = 40f
         canvas.drawText(
             "HORIZON",
-            10f,
-            grid.horizonY * gridScaleFactor - 10f,
+            (horizonStart.x * gridScaleFactor + 10f).coerceIn(10f, width.toFloat() - 200f),
+            (horizonStart.y * gridScaleFactor - 10f).coerceIn(50f, height.toFloat() - 10f),
             gridTextPaint
         )
         gridTextPaint.textSize = 32f // Reset
